@@ -74,6 +74,50 @@ class DistributedOptimizer(mx.optimizer.Optimizer):
         self._optimizer.set_wd_mult(args_wd_mult)
 
 
+def ResizeEvalDataIter(data_iter):
+    try:
+        from mpi4py import MPI
+    except ImportError as e:
+        raise ImportError(
+            "ResizeEvalDataIter must be used with mpi4py now, run 'pip install mpi4py' to install it")
+    batch_num = 0
+    for _ in data_iter:
+        batch_num += 1
+    data_iter.reset()
+    comm = MPI.COMM_WORLD
+    batch_num = comm.gather(batch_num, root=0)
+    if rank() == 0:
+        max_batch_num = max(batch_num)
+    else:
+        max_batch_num = 0
+    max_batch_num = comm.bcast(max_batch_num, root=0)
+    return mx.io.ResizeIter(data_iter, max_batch_num)
+
+
+def DistributedEvalMetric(base):
+    assert(issubclass(base, mx.metric.EvalMetric))
+
+    try:
+        from mpi4py import MPI
+    except ImportError as e:
+        raise ImportError(
+            "DistributedEvalMetric must be used with mpi4py now, run 'pip install mpi4py' to install it")
+    class _DistributedEvalMetric(base):
+        def __init__(self, *args, **kwargs):
+            self._size = size()
+            self._rank = rank()
+            return super().__init__(*args, **kwargs)
+
+        def update(self, labels, preds):
+            labels = MPI.COMM_WORLD.gather(labels, root=0)
+            preds = MPI.COMM_WORLD.gather(preds, root=0)
+            if self._rank == 0:
+                for i in range(self._size):
+                    super().update(labels[i], preds[i])
+
+    return _DistributedEvalMetric
+
+
 # DistributedTrainer, a subclass of MXNet gluon.Trainer.
 # There are two differences between DistributedTrainer and Trainer:
 # 1. DistributedTrainer calculates gradients using Horovod allreduce
