@@ -341,8 +341,8 @@ def parse_args():
                         help="If this flag is set, extra messages will "
                              "printed.")
 
-    parser.add_argument('--network-segment', action="store",
-                        dest="network_segment",
+    parser.add_argument('--subnet', action="store",
+                        dest="subnet",
                         help="mpirun with sepecific nerwork segment when cannot find  match_intf among workers")
 
     parser.add_argument('command', nargs=argparse.REMAINDER,
@@ -415,7 +415,7 @@ def run():
             print("Testing interfaces on all the hosts.")
 
         local_host_names = set(all_host_names) - set(remote_host_names)
-        if not args.network_segment:
+        if not args.subnet:
             # Find the set of common, routed interfaces on all the hosts (remote
             # and local) and specify it in the args to be used by NCCL. It is
             # expected that the following function will find at least one interface
@@ -435,8 +435,8 @@ def run():
             _driver_fn(key, all_host_names, local_host_names, tmout,
                        match_intf, args.ssh_port, args.verbose, fn_cache=fn_cache)
 
-            tcp_intf_arg = "-mca btl_tcp_if_include {network_segment}".format(
-                network_segment=args.network_segment) 
+            tcp_intf_arg = "-mca btl_tcp_if_include {subnet}".format(
+                subnet=args.subnet) 
             nccl_socket_intf_arg = ""
 
         if args.verbose:
