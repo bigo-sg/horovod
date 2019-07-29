@@ -102,7 +102,7 @@ def _check_all_hosts_ssh_successful(host_addresses, ssh_port=None):
 
 def _launch_task_servers(all_host_names, local_host_names, driver_addresses,
                          num_hosts, tmout,
-                         key, ssh_port=None):
+                         key, match_intf, ssh_port=None):
     """
     executes the task server and service client task for registration on the
     hosts.
@@ -157,19 +157,20 @@ def _launch_task_servers(all_host_names, local_host_names, driver_addresses,
         if host_name in local_host_names:
             command = \
                 '{python} -m horovod.run.task_fn {index} ' \
-                '{driver_addresses} {num_hosts} {timeout} {key}'.format(
+                '{driver_addresses} {num_hosts} {timeout} {key} {match_intf}'.format(
                     python=sys.executable,
                     index=codec.dumps_base64(index),
                     driver_addresses=codec.dumps_base64(driver_addresses),
                     num_hosts=codec.dumps_base64(num_hosts),
                     timeout=codec.dumps_base64(tmout),
-                    key=codec.dumps_base64(key)
+                    key=codec.dumps_base64(key),
+                    match_intf=codec.dumps_base64(match_intf)
                 )
         else:
             command = \
                 'ssh -o StrictHostKeyChecking=no {host} {ssh_port_arg} ' \
                 '\'{python} -m horovod.run.task_fn {index} ' \
-                '{driver_addresses} {num_hosts} {timeout} {key}\''.format(
+                '{driver_addresses} {num_hosts} {timeout} {key} {match_intf} \''.format(
                     host=host_name,
                     ssh_port_arg=ssh_port_arg,
                     python=sys.executable,
@@ -177,7 +178,8 @@ def _launch_task_servers(all_host_names, local_host_names, driver_addresses,
                     driver_addresses=codec.dumps_base64(driver_addresses),
                     num_hosts=codec.dumps_base64(num_hosts),
                     timeout=codec.dumps_base64(tmout),
-                    key=codec.dumps_base64(key)
+                    key=codec.dumps_base64(key),
+                    match_intf=codec.dumps_base64(match_intf)
                 )
         args_list.append([command])
     # Each thread will use ssh command to launch the server on one task. If an
@@ -191,7 +193,7 @@ def _launch_task_servers(all_host_names, local_host_names, driver_addresses,
 
 
 @cache.use_cache()
-def _driver_fn(key, all_host_names, local_host_names, tmout, ssh_port=None,
+def _driver_fn(key, all_host_names, local_host_names, tmout, match_intf, ssh_port=None,
                verbose=False):
     """
     launches the service service, launches the task service on each worker and
@@ -222,7 +224,7 @@ def _driver_fn(key, all_host_names, local_host_names, tmout, ssh_port=None,
     # Have all the workers register themselves with the service service.
     _launch_task_servers(all_host_names, local_host_names,
                          driver.addresses(), num_hosts, tmout,
-                         key, ssh_port)
+                         key, match_intf, ssh_port)
     if verbose:
         print("Attempted to launch horovod task servers.")
     try:
@@ -250,18 +252,19 @@ def _driver_fn(key, all_host_names, local_host_names, tmout, ssh_port=None,
         driver.wait_for_task_to_task_address_updates(tmout)
         if verbose:
             print("Host-to-host interface checking successful.")
-        # Determine a set of common interfaces for task-to-task communication.
-        common_intfs = set(driver.task_addresses_for_tasks(0).keys())
-        for index in range(1, num_hosts):
-            common_intfs.intersection_update(
-                driver.task_addresses_for_tasks(index).keys())
-        if not common_intfs:
-            raise Exception(
-                'Unable to find a set of common task-to-task communication '
-                'interfaces: %s'
-                % [(index, driver.task_addresses_for_tasks(index))
-                   for index in range(num_hosts)])
-        return common_intfs
+        if match_intf:
+            # Determine a set of common interfaces for task-to-task communication.
+            common_intfs = set(driver.task_addresses_for_tasks(0).keys())
+            for index in range(1, num_hosts):
+                common_intfs.intersection_update(
+                    driver.task_addresses_for_tasks(index).keys())
+            if not common_intfs:
+                raise Exception(
+                    'Unable to find a set of common task-to-task communication '
+                    'interfaces: %s'
+                    % [(index, driver.task_addresses_for_tasks(index))
+                       for index in range(num_hosts)])
+            return common_intfs
     finally:
         driver.shutdown()
 
@@ -338,6 +341,10 @@ def parse_args():
                         help="If this flag is set, extra messages will "
                              "printed.")
 
+    parser.add_argument('--subnet', action="store",
+                        dest="subnet",
+                        help="mpirun with sepecific nerwork segment when cannot find  match_intf among workers")
+
     parser.add_argument('command', nargs=argparse.REMAINDER,
                         help="Command to be executed.")
 
@@ -408,19 +415,29 @@ def run():
             print("Testing interfaces on all the hosts.")
 
         local_host_names = set(all_host_names) - set(remote_host_names)
-        # Find the set of common, routed interfaces on all the hosts (remote
-        # and local) and specify it in the args to be used by NCCL. It is
-        # expected that the following function will find at least one interface
-        # otherwise, it will raise an exception.
-        common_intfs = _driver_fn(key,
-                                  all_host_names, local_host_names, tmout,
-                                  args.ssh_port, args.verbose,
-                                  fn_cache=fn_cache)
+        if not args.subnet:
+            # Find the set of common, routed interfaces on all the hosts (remote
+            # and local) and specify it in the args to be used by NCCL. It is
+            # expected that the following function will find at least one interface
+            # otherwise, it will raise an exception.
+            match_intf = True
+            common_intfs = _driver_fn(key,
+                                      all_host_names, local_host_names, tmout,
+                                      match_intf, args.ssh_port, args.verbose, 
+                                      fn_cache=fn_cache)
+            
+            tcp_intf_arg = "-mca btl_tcp_if_include {common_intfs}".format(
+                common_intfs=','.join(common_intfs))
+            nccl_socket_intf_arg = "-x NCCL_SOCKET_IFNAME={common_intfs}".format(
+                common_intfs=','.join(common_intfs))
+        else: 
+            match_intf = False
+            _driver_fn(key, all_host_names, local_host_names, tmout,
+                       match_intf, args.ssh_port, args.verbose, fn_cache=fn_cache)
 
-        tcp_intf_arg = "-mca btl_tcp_if_include {common_intfs}".format(
-            common_intfs=','.join(common_intfs))
-        nccl_socket_intf_arg = "-x NCCL_SOCKET_IFNAME={common_intfs}".format(
-            common_intfs=','.join(common_intfs))
+            tcp_intf_arg = "-mca btl_tcp_if_include {subnet}".format(
+                subnet=args.subnet) 
+            nccl_socket_intf_arg = ""
 
         if args.verbose:
             print("Interfaces on all the hosts were successfully checked.")

@@ -46,8 +46,7 @@ class DistributedOptimizer(mx.optimizer.Optimizer):
     def _do_allreduce(self, index, grad):
         if isinstance(index, (tuple, list)):
             for i in range(len(index)):
-                allreduce_(grad[i], average=True,
-                           name=str(index[i]), priority=-i)
+                allreduce_(grad[i], average=True, name=str(index[i]))
         else:
             allreduce_(grad, average=True, name=str(index))
 
@@ -138,7 +137,7 @@ class DistributedTrainer(mx.gluon.Trainer):
         for i, param in enumerate(self._params):
             if param.grad_req != 'null':
                 allreduce_(param.list_grad()[0], average=False,
-                           name=str(i), priority=-i)
+                           name=str(i))
 
 def broadcast_parameters(params, root_rank=0):
     """
