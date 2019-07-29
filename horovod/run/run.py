@@ -420,9 +420,10 @@ def run():
             # and local) and specify it in the args to be used by NCCL. It is
             # expected that the following function will find at least one interface
             # otherwise, it will raise an exception.
+            match_intf = True
             common_intfs = _driver_fn(key,
                                       all_host_names, local_host_names, tmout,
-                                      args.ssh_port, args.verbose, match_intf=True,
+                                      match_intf, args.ssh_port, args.verbose, 
                                       fn_cache=fn_cache)
             
             tcp_intf_arg = "-mca btl_tcp_if_include {common_intfs}".format(
@@ -430,12 +431,12 @@ def run():
             nccl_socket_intf_arg = "-x NCCL_SOCKET_IFNAME={common_intfs}".format(
                 common_intfs=','.join(common_intfs))
         else: 
+            match_intf = False
             _driver_fn(key, all_host_names, local_host_names, tmout,
-                       args.ssh_port, args.verbose, match_intf=True, fn_cache=fn_cache)
+                       match_intf, args.ssh_port, args.verbose, fn_cache=fn_cache)
 
             tcp_intf_arg = "-mca btl_tcp_if_include {network_segment}".format(
                 network_segment=args.network_segment) 
-
             nccl_socket_intf_arg = ""
 
         if args.verbose:

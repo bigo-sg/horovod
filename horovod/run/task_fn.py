@@ -53,9 +53,9 @@ def _task_fn(index, driver_addresses, num_hosts, tmout, key, match_intf):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 6:
+    if len(sys.argv) != 7:
         print(
-                'Usage: %s <index> <service addresses> <num_hosts> <tmout> <key>' %
+                'Usage: %s <index> <service addresses> <num_hosts> <tmout> <key> <match_intf>' %
                 sys.argv[0])
         sys.exit(1)
 
