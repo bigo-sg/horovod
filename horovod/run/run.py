@@ -422,7 +422,7 @@ def run():
             # otherwise, it will raise an exception.
             common_intfs = _driver_fn(key,
                                       all_host_names, local_host_names, tmout,
-                                      args.ssh_port, args.verbose, match_inft=True,
+                                      args.ssh_port, args.verbose, match_intf=True,
                                       fn_cache=fn_cache)
             
             tcp_intf_arg = "-mca btl_tcp_if_include {common_intfs}".format(
@@ -431,7 +431,7 @@ def run():
                 common_intfs=','.join(common_intfs))
         else: 
             _driver_fn(key, all_host_names, local_host_names, tmout,
-                       args.ssh_port, args.verbose, match_inft=True, fn_cache=fn_cache)
+                       args.ssh_port, args.verbose, match_intf=True, fn_cache=fn_cache)
 
             tcp_intf_arg = "-mca btl_tcp_if_include {network_segment}".format(
                 network_segment=args.network_segment) 
